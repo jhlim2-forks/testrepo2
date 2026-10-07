@@ -42,6 +42,20 @@ func TestCreateTodo(t *testing.T) {
 	}
 }
 
+// REQ-02: 문자열이 아닌 제목은 요청 형식 오류로 거절하고 목록을 바꾸지 않는다.
+func TestCreateRejectsNonStringTitle(t *testing.T) {
+	h := (&todoStore{}).handler()
+	for _, body := range []string{`{"title":null}`, `{"title":123}`} {
+		w := request(t, h, http.MethodPost, body)
+		if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"요청 형식이 올바르지 않습니다."}` {
+			t.Fatalf("%s: got %d %s", body, w.Code, w.Body)
+		}
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
+		t.Fatalf("list changed: %s", got)
+	}
+}
+
 // REQ-03: 비어 있거나 공백뿐인 제목은 거절하고 목록을 바꾸지 않는다.
 func TestRejectsBlankTitle(t *testing.T) {
 	h := (&todoStore{}).handler()

@@ -67,8 +67,13 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목을 입력해 주세요."})
 		return
 	}
-	var title string
-	if err := json.Unmarshal(raw, &title); err != nil {
+	var decodedTitle any
+	if err := json.Unmarshal(raw, &decodedTitle); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		return
+	}
+	title, ok := decodedTitle.(string)
+	if !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
 		return
 	}
