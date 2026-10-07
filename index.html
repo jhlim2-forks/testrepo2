@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>할 일 목록</title>
+  <style>
+    body { max-width: 40rem; margin: 3rem auto; padding: 0 1rem; font-family: sans-serif; color: #222; }
+    form { display: flex; gap: .5rem; }
+    input { flex: 1; padding: .7rem; }
+    button { padding: .7rem 1rem; }
+    #error { color: #b42318; min-height: 1.5em; }
+    li { padding: .4rem 0; }
+  </style>
+</head>
+<body>
+  <h1>할 일 목록</h1>
+  <form id="todo-form">
+    <input id="title" aria-label="할 일 제목" placeholder="할 일을 입력하세요" maxlength="200">
+    <button type="submit">추가</button>
+  </form>
+  <p id="error" role="alert"></p>
+  <ul id="todos"></ul>
+  <script>
+    const list = document.getElementById('todos');
+    const error = document.getElementById('error');
+    function render(items) {
+      list.replaceChildren();
+      if (!items.length) {
+        const empty = document.createElement('li');
+        empty.textContent = '할 일이 없습니다.';
+        list.append(empty);
+        return;
+      }
+      for (const item of items) {
+        const row = document.createElement('li');
+        row.textContent = item.title;
+        list.append(row);
+      }
+    }
+    async function refresh() {
+      const response = await fetch('/api/todos');
+      const data = await response.json();
+      render(data.todos);
+    }
+    document.getElementById('todo-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      error.textContent = '';
+      const input = document.getElementById('title');
+      const response = await fetch('/api/todos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: input.value })
+      });
+      const data = await response.json();
+      if (!response.ok) { error.textContent = data.error; return; }
+      input.value = '';
+      await refresh();
+    });
+    refresh();
+  </script>
+</body>
+</html>
