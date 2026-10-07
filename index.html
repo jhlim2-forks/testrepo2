@@ -21,17 +21,14 @@
   </form>
   <p id="error" role="alert"></p>
   <ul id="todos"></ul>
+  <p id="empty-message" hidden>아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요.</p>
   <script>
     const list = document.getElementById('todos');
     const error = document.getElementById('error');
+    const emptyMessage = document.getElementById('empty-message');
     function render(items) {
       list.replaceChildren();
-      if (!items.length) {
-        const empty = document.createElement('li');
-        empty.textContent = '할 일이 없습니다.';
-        list.append(empty);
-        return;
-      }
+      emptyMessage.hidden = items.length !== 0;
       for (const item of items) {
         const row = document.createElement('li');
         row.textContent = item.title;

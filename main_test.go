@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -113,5 +114,32 @@ func TestNewServerStartsWithEmptyTodoList(t *testing.T) {
 	w := request(t, h, http.MethodGet, "")
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"todos":[]}` {
 		t.Fatalf("new server list: status=%d body=%s", w.Code, w.Body)
+	}
+}
+
+// REQ-07: 빈 목록 안내 문구는 화면 HTML에만 있고 목록 API 응답에는 없다.
+func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
+	h := (&todoStore{}).handler()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	const message = "아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요."
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `id="empty-message"`) || !strings.Contains(w.Body.String(), message) {
+		t.Fatalf("home page missing empty message: %d", w.Code)
+	}
+	api := request(t, h, http.MethodGet, "")
+	if strings.Contains(api.Body.String(), message) || strings.TrimSpace(api.Body.String()) != `{"todos":[]}` {
+		t.Fatalf("empty message leaked into API: %s", api.Body)
+	}
+}
+
+// REQ-08: 렌더링은 항목 수에 따라 전용 안내 문구를 보이고 숨긴다.
+func TestEmptyMessageVisibilityTracksRenderedTodos(t *testing.T) {
+	html, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(html)
+	if !strings.Contains(source, `<p id="empty-message" hidden>`) || !strings.Contains(source, "emptyMessage.hidden = items.length !== 0;") {
+		t.Fatal("empty message must start hidden and render based on the current todo count")
 	}
 }
