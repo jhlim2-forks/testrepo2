@@ -70,7 +70,7 @@ func TestRejectsBlankTitle(t *testing.T) {
 	}
 }
 
-// REQ-04: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
+// REQ-04 #14: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
 func TestTitleLengthUsesRunes(t *testing.T) {
 	h := (&todoStore{}).handler()
 	for _, tc := range []struct {
@@ -104,5 +104,14 @@ func TestTodosPreserveCreationOrder(t *testing.T) {
 	}
 	if len(got.Todos) != 3 || got.Todos[0].Title != "첫째" || got.Todos[1].Title != "둘째" || got.Todos[2].Title != "셋째" {
 		t.Fatalf("unexpected order: %#v", got.Todos)
+	}
+}
+
+// REQ-06: 새 서버 인스턴스의 할 일 목록은 비어 있다.
+func TestNewServerStartsWithEmptyTodoList(t *testing.T) {
+	h := (&todoStore{}).handler()
+	w := request(t, h, http.MethodGet, "")
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"todos":[]}` {
+		t.Fatalf("new server list: status=%d body=%s", w.Code, w.Body)
 	}
 }
