@@ -106,3 +106,21 @@ func TestTodosPreserveCreationOrder(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", got.Todos)
 	}
 }
+
+// REQ-06: 서버를 새로 시작하면 메모리에 보관된 할 일 목록은 비어 있다.
+func TestNewServerStartsWithEmptyTodos(t *testing.T) {
+	previous := (&todoStore{}).handler()
+	request(t, previous, http.MethodPost, `{"title":"회의 준비"}`)
+
+	restarted := (&todoStore{}).handler()
+	w := request(t, restarted, http.MethodGet, "")
+	var got struct {
+		Todos []Todo `json:"todos"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || got.Todos == nil || len(got.Todos) != 0 {
+		t.Fatalf("new server list = %s, want empty array", w.Body)
+	}
+}
