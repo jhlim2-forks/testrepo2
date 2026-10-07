@@ -70,7 +70,7 @@ func TestRejectsBlankTitle(t *testing.T) {
 	}
 }
 
-// REQ-04: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
+// REQ-04 #14: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
 func TestTitleLengthUsesRunes(t *testing.T) {
 	h := (&todoStore{}).handler()
 	for _, tc := range []struct {
