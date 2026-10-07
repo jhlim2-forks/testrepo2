@@ -106,3 +106,12 @@ func TestTodosPreserveCreationOrder(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", got.Todos)
 	}
 }
+
+// REQ-06: 새 서버 인스턴스의 할 일 목록은 비어 있다.
+func TestNewServerStartsWithEmptyTodoList(t *testing.T) {
+	h := (&todoStore{}).handler()
+	w := request(t, h, http.MethodGet, "")
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"todos":[]}` {
+		t.Fatalf("new server list: status=%d body=%s", w.Code, w.Body)
+	}
+}
