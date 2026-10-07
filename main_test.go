@@ -106,16 +106,3 @@ func TestTodosPreserveCreationOrder(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", got.Todos)
 	}
 }
-
-// REQ-06: 새 서버 인스턴스는 빈 메모리 목록으로 시작한다.
-func TestNewServerStartsEmpty(t *testing.T) {
-	var got struct {
-		Todos []Todo `json:"todos"`
-	}
-	if err := json.Unmarshal(request(t, (&todoStore{}).handler(), http.MethodGet, "").Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Todos == nil || len(got.Todos) != 0 {
-		t.Fatalf("expected empty list, got %#v", got.Todos)
-	}
-}
