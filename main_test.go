@@ -151,3 +151,29 @@ func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
 		t.Fatalf("empty list response must contain only an empty todos array: %d %s", w.Code, w.Body)
 	}
 }
+
+// REQ-08: 빈 목록 안내는 목록 개수에 따라 갱신되고 추가 성공 후 화면에서 바로 숨는다.
+func TestEmptyMessageTracksTodoCount(t *testing.T) {
+	const message = "아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요."
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	html := page.Body.String()
+	if page.Code != http.StatusOK || !strings.Contains(html, `<p id="empty-message" hidden>`+message+`</p>`) {
+		t.Fatalf("empty message must start hidden in the page: %d", page.Code)
+	}
+	if !strings.Contains(html, "emptyMessage.hidden = items.length !== 0;") || !strings.Contains(html, "if (!response.ok) { error.textContent = data.error; return; }") || !strings.Contains(html, "await refresh();") {
+		t.Fatal("page must show the message only for an empty list and refresh after a successful addition")
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
+		t.Fatalf("expected empty todo list: %s", got)
+	}
+	created := request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create failed: %d %s", created.Code, created.Body)
+	}
+	listed := request(t, h, http.MethodGet, "")
+	if !strings.Contains(listed.Body.String(), `"title":"회의 자료 준비"`) {
+		t.Fatalf("created todo missing from refreshed list: %s", listed.Body)
+	}
+}
