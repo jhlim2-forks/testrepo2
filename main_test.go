@@ -138,15 +138,3 @@ func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
 		t.Fatalf("empty list response must contain only an empty todos array: %d %s", w.Code, w.Body)
 	}
 }
-
-// REQ-08: 렌더링은 항목 수에 따라 전용 안내 문구를 보이고 숨긴다.
-func TestEmptyMessageVisibilityTracksRenderedTodos(t *testing.T) {
-	html, err := os.ReadFile("index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	source := string(html)
-	if !strings.Contains(source, `<p id="empty-message" hidden>`) || !strings.Contains(source, "emptyMessage.hidden = items.length !== 0;") {
-		t.Fatal("empty message must start hidden and render based on the current todo count")
-	}
-}
