@@ -91,7 +91,7 @@ func TestTitleLengthUsesRunes(t *testing.T) {
 	}
 }
 
-// REQ-05 #23: 조회 결과는 추가한 순서대로 반환한다.
+// REQ-05 #18, #23: 조회 결과는 추가한 순서대로 반환한다.
 func TestTodosPreserveCreationOrder(t *testing.T) {
 	h := (&todoStore{}).handler()
 	for _, title := range []string{"첫째", "둘째", "셋째"} {
@@ -117,20 +117,25 @@ func TestNewServerStartsWithEmptyTodoList(t *testing.T) {
 	}
 }
 
-// REQ-07: 빈 목록 안내 문구는 화면에 표시하고 API 응답에는 담지 않는다.
-func TestEmptyMessageIsOnlyInPage(t *testing.T) {
+// REQ-07: 빈 목록 안내 문구는 화면 HTML에만 있고 빈 목록 API 응답에는 없다.
+func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
 	const message = "아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요."
 	h := (&todoStore{}).handler()
-
 	page := httptest.NewRecorder()
 	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `id="empty-message"`) || !strings.Contains(page.Body.String(), message) {
 		t.Fatalf("home page does not contain the empty-list message: status=%d", page.Code)
 	}
-
-	list := request(t, h, http.MethodGet, "")
-	if list.Code != http.StatusOK || strings.Contains(list.Body.String(), message) {
-		t.Fatalf("empty-list message must not appear in API response: status=%d body=%s", list.Code, list.Body)
+	html, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), `<p id="empty-message" hidden>`+message+`</p>`) {
+		t.Fatalf("home page does not contain the expected empty message")
+	}
+	w := request(t, h, http.MethodGet, "")
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"todos":[]}` || strings.Contains(w.Body.String(), message) {
+		t.Fatalf("empty list response must contain only an empty todos array: %d %s", w.Code, w.Body)
 	}
 }
 
