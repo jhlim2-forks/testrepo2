@@ -138,3 +138,50 @@ func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
 		t.Fatalf("empty list response must contain only an empty todos array: %d %s", w.Code, w.Body)
 	}
 }
+
+// REQ-08: 안내 문구의 표시 여부는 목록 개수로 갱신되며 추가 성공 뒤 목록을 다시 불러온다.
+func TestEmptyMessageVisibilityFollowsTodoCount(t *testing.T) {
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("home page status: %d", page.Code)
+	}
+	html, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(html)
+	for _, fragment := range []string{
+		`<p id="empty-message" hidden>`,
+		`emptyMessage.hidden = items.length !== 0;`,
+		`await refresh();`,
+		`const data = await response.json();`,
+		`render(data.todos);`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("home page is missing behavior %q", fragment)
+		}
+	}
+
+	// The successful create changes the server list; the page's refresh fetches
+	// this updated list and render() hides the message when its length is nonzero.
+	created := request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status: %d %s", created.Code, created.Body)
+	}
+	listed := request(t, h, http.MethodGet, "")
+	var got struct {
+		Todos []Todo `json:"todos"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Code != http.StatusOK || len(got.Todos) != 1 {
+		t.Fatalf("updated list: status=%d todos=%#v", listed.Code, got.Todos)
+	}
+	empty := request(t, (&todoStore{}).handler(), http.MethodGet, "")
+	if empty.Code != http.StatusOK || strings.TrimSpace(empty.Body.String()) != `{"todos":[]}` {
+		t.Fatalf("empty list must remain empty: status=%d body=%s", empty.Code, empty.Body)
+	}
+}
