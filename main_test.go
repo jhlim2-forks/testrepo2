@@ -91,7 +91,7 @@ func TestTitleLengthUsesRunes(t *testing.T) {
 	}
 }
 
-// REQ-05: 조회 결과는 추가한 순서대로 반환한다.
+// REQ-05 #18: 조회 결과는 추가한 순서대로 반환한다.
 func TestTodosPreserveCreationOrder(t *testing.T) {
 	h := (&todoStore{}).handler()
 	for _, title := range []string{"첫째", "둘째", "셋째"} {
