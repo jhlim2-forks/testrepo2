@@ -88,7 +88,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	item := Todo{ID: len(s.items) + 1, Title: title}
-	s.items = append([]Todo{item}, s.items...)
+	s.items = append(s.items, item)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, item)
 }
