@@ -26,6 +26,23 @@ func TestHomePage(t *testing.T) {
 	}
 }
 
+// REQ-07: 빈 목록 안내 문구는 화면 HTML에 있고 빈 목록 API 응답에는 없다.
+func TestEmptyMessageIsOnlyInHomePage(t *testing.T) {
+	h := (&todoStore{}).handler()
+	message := "아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요."
+
+	home := httptest.NewRecorder()
+	h.ServeHTTP(home, httptest.NewRequest(http.MethodGet, "/", nil))
+	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), `id="empty-message"`) || !strings.Contains(home.Body.String(), message) {
+		t.Fatalf("home page does not contain the empty message element: status=%d body=%s", home.Code, home.Body)
+	}
+
+	list := request(t, h, http.MethodGet, "")
+	if list.Code != http.StatusOK || strings.TrimSpace(list.Body.String()) != `{"todos":[]}` || strings.Contains(list.Body.String(), message) {
+		t.Fatalf("empty list response unexpected: status=%d body=%s", list.Code, list.Body)
+	}
+}
+
 // REQ-02: 유효한 제목을 추가하고 식별자와 제목을 돌려준다.
 func TestCreateTodo(t *testing.T) {
 	h := (&todoStore{}).handler()
