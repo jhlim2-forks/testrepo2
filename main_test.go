@@ -117,6 +117,23 @@ func TestNewServerStartsWithEmptyTodoList(t *testing.T) {
 	}
 }
 
+// REQ-07: 빈 목록 안내 문구는 화면에 표시하고 API 응답에는 담지 않는다.
+func TestEmptyMessageIsOnlyInPage(t *testing.T) {
+	const message = "아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요."
+	h := (&todoStore{}).handler()
+
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `id="empty-message"`) || !strings.Contains(page.Body.String(), message) {
+		t.Fatalf("home page does not contain the empty-list message: status=%d", page.Code)
+	}
+
+	list := request(t, h, http.MethodGet, "")
+	if list.Code != http.StatusOK || strings.Contains(list.Body.String(), message) {
+		t.Fatalf("empty-list message must not appear in API response: status=%d body=%s", list.Code, list.Body)
+	}
+}
+
 // REQ-08: 렌더링은 항목 수에 따라 전용 안내 문구를 보이고 숨긴다.
 func TestEmptyMessageVisibilityTracksRenderedTodos(t *testing.T) {
 	html, err := os.ReadFile("index.html")
