@@ -109,7 +109,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len([]rune(title)) > 200 {
-		writeError(w, http.StatusBadRequest, "제목은 200자 이내로 입력해 주세요.")
+		writeError(w, http.StatusBadRequest, "제목은 200자까지 입력할 수 있습니다.")
 		return
 	}
 	if due != "" && !validDueDate(due) {
