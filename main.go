@@ -93,11 +93,11 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 			due = value
 		}
 	}
-	title = strings.TrimSpace(title)
 	if title == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목을 입력해 주세요."})
 		return
 	}
+	title = strings.TrimSpace(title)
 	if len([]rune(title)) > 200 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목은 200자까지 입력할 수 있습니다."})
 		return

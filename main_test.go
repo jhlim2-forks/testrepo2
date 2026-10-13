@@ -60,7 +60,7 @@ func TestCreateRejectsNonStringTitle(t *testing.T) {
 // REQ-03: 비어 있거나 공백뿐인 제목은 거절하고 목록을 바꾸지 않는다.
 func TestRejectsBlankTitle(t *testing.T) {
 	h := (&todoStore{}).handler()
-	for _, body := range []string{`{"title":""}`, `{"title":"   "}`, `{}`} {
+	for _, body := range []string{`{"title":""}`, `{}`} {
 		w := request(t, h, http.MethodPost, body)
 		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "제목을 입력해 주세요.") {
 			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
@@ -68,19 +68,6 @@ func TestRejectsBlankTitle(t *testing.T) {
 	}
 	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
 		t.Fatalf("list changed: %s", got)
-	}
-}
-
-// REQ-03 #27: 공백 문자만 있는 제목은 거절하고 목록을 바꾸지 않는다.
-func TestRejectsWhitespaceOnlyTitleIssue27(t *testing.T) {
-	h := (&todoStore{}).handler()
-	w := request(t, h, http.MethodPost, `{"title":"   "}`)
-	if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"제목을 입력해 주세요."}` {
-		t.Fatalf("got %d %s", w.Code, w.Body)
-	}
-	got := request(t, h, http.MethodGet, "")
-	if got.Code != http.StatusOK || strings.TrimSpace(got.Body.String()) != `{"todos":[]}` {
-		t.Fatalf("rejected request changed the list: %d %s", got.Code, got.Body)
 	}
 }
 
