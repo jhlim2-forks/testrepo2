@@ -45,6 +45,11 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+// writeError writes the {"error": "..."} body shared by every failed API response.
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
 func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		s.mu.Lock()
@@ -55,30 +60,30 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "지원하지 않는 요청 방식입니다."})
+		writeError(w, http.StatusMethodNotAllowed, "지원하지 않는 요청 방식입니다.")
 		return
 	}
 	var input map[string]json.RawMessage
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	title := ""
 	if raw, exists := input["title"]; exists {
 		var decodedTitle any
 		if err := json.Unmarshal(raw, &decodedTitle); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+			writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 			return
 		}
 		var ok bool
 		if title, ok = decodedTitle.(string); !ok {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+			writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 			return
 		}
 	}
@@ -86,13 +91,13 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	if raw, exists := input["due"]; exists {
 		var decodedDue any
 		if err := json.Unmarshal(raw, &decodedDue); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+			writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 			return
 		}
 		if decodedDue != nil {
 			value, ok := decodedDue.(string)
 			if !ok {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+				writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 				return
 			}
 			due = value
@@ -100,15 +105,15 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목을 입력해 주세요."})
+		writeError(w, http.StatusBadRequest, "제목을 입력해 주세요.")
 		return
 	}
 	if len([]rune(title)) > 200 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목은 200자까지 입력할 수 있습니다."})
+		writeError(w, http.StatusBadRequest, "제목은 200자까지 입력할 수 있습니다.")
 		return
 	}
 	if due != "" && !validDueDate(due) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "마감일은 실제 있는 날짜를 YYYY-MM-DD 형식으로 입력해 주세요."})
+		writeError(w, http.StatusBadRequest, "마감일은 실제 있는 날짜를 YYYY-MM-DD 형식으로 입력해 주세요.")
 		return
 	}
 	s.mu.Lock()
@@ -121,7 +126,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 // todo handles PATCH /api/todos/{id}, which marks a todo as done or not done.
 func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPatch {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "지원하지 않는 요청 방식입니다."})
+		writeError(w, http.StatusMethodNotAllowed, "지원하지 않는 요청 방식입니다.")
 		return
 	}
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/todos/"))
@@ -129,28 +134,28 @@ func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 	found := err == nil && id >= 1 && id <= len(s.items)
 	s.mu.Unlock()
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "할 일을 찾을 수 없습니다."})
+		writeError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
 		return
 	}
 	var input map[string]json.RawMessage
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	var decodedDone any
 	if raw, exists := input["done"]; !exists || json.Unmarshal(raw, &decodedDone) != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	done, ok := decodedDone.(bool)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		writeError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
 	s.mu.Lock()
