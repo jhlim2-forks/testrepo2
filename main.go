@@ -109,6 +109,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len([]rune(title)) > 200 {
+		// REQ-04: 글자 수는 앞뒤 공백을 제거한 제목의 유니코드 코드 포인트 수다.
 		writeError(w, http.StatusBadRequest, "제목은 200자까지 입력할 수 있습니다.")
 		return
 	}
