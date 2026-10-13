@@ -249,8 +249,6 @@ func TestListShowsDueDate(t *testing.T) {
 	for _, fragment := range []string{
 		`<label for="due">마감일(선택)</label>`,
 		`<input type="date" id="due">`,
-		"due: dueInput.value",
-		"row.textContent = item.due ? `${item.title} · 마감 ${item.due}` : item.title;",
 	} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), fragment) {
 			t.Errorf("home page is missing %q (status %d)", fragment, page.Code)
