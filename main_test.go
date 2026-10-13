@@ -71,6 +71,21 @@ func TestRejectsBlankTitle(t *testing.T) {
 	}
 }
 
+// REQ-03 #35: 공백 문자만 있는 제목은 빈 제목과 같은 메시지로 거절하고 목록을 바꾸지 않는다.
+func TestRejectsWhitespaceOnlyTitleIssue35(t *testing.T) {
+	h := (&todoStore{}).handler()
+	for _, body := range []string{`{"title":"   "}`, `{"title":" \t\n "}`} {
+		w := request(t, h, http.MethodPost, body)
+		if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"제목을 입력해 주세요."}` {
+			t.Fatalf("%s: got %d %s", body, w.Code, w.Body)
+		}
+	}
+	got := request(t, h, http.MethodGet, "")
+	if got.Code != http.StatusOK || strings.TrimSpace(got.Body.String()) != `{"todos":[]}` {
+		t.Fatalf("rejected request changed the list: %d %s", got.Code, got.Body)
+	}
+}
+
 // REQ-04 #14: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
 func TestTitleLengthUsesRunes(t *testing.T) {
 	h := (&todoStore{}).handler()
