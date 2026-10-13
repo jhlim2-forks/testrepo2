@@ -106,6 +106,19 @@ func TestTitleLengthUsesRunes(t *testing.T) {
 	}
 }
 
+// REQ-04 #53: 200자를 넘는 제목은 API 계약의 오류 문장으로 거절하고 목록을 바꾸지 않는다.
+func TestLongTitleErrorMessageIssue53(t *testing.T) {
+	h := (&todoStore{}).handler()
+	body, _ := json.Marshal(map[string]string{"title": strings.Repeat("가", 201)})
+	w := request(t, h, http.MethodPost, string(body))
+	if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"제목은 200자까지 입력할 수 있습니다."}` {
+		t.Fatalf("got %d %s", w.Code, w.Body)
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
+		t.Fatalf("list changed: %s", got)
+	}
+}
+
 // REQ-05 #18, #23: 조회 결과는 추가한 순서대로 반환한다.
 func TestTodosPreserveCreationOrder(t *testing.T) {
 	h := (&todoStore{}).handler()
