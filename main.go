@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ type Todo struct {
 	ID    int    `json:"id"`
 	Title string `json:"title"`
 	Due   string `json:"due,omitempty"`
+	Done  bool   `json:"done,omitempty"`
 }
 
 type todoStore struct {
@@ -32,6 +35,7 @@ func (s *todoStore) handler() http.Handler {
 		http.ServeFile(w, r, "index.html")
 	})
 	mux.HandleFunc("/api/todos", s.todos)
+	mux.HandleFunc("/api/todos/", s.todo)
 	return mux
 }
 
@@ -46,6 +50,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		items := append([]Todo{}, s.items...)
 		s.mu.Unlock()
+		sort.SliceStable(items, func(i, j int) bool { return !items[i].Done && items[j].Done })
 		writeJSON(w, http.StatusOK, map[string]any{"todos": items})
 		return
 	}
@@ -111,6 +116,48 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	s.items = append(s.items, item)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, item)
+}
+
+// todo handles PATCH /api/todos/{id}, which marks a todo as done or not done.
+func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "지원하지 않는 요청 방식입니다."})
+		return
+	}
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/todos/"))
+	s.mu.Lock()
+	found := err == nil && id >= 1 && id <= len(s.items)
+	s.mu.Unlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "할 일을 찾을 수 없습니다."})
+		return
+	}
+	var input map[string]json.RawMessage
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		return
+	}
+	var decodedDone any
+	if raw, exists := input["done"]; !exists || json.Unmarshal(raw, &decodedDone) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		return
+	}
+	done, ok := decodedDone.(bool)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+		return
+	}
+	s.mu.Lock()
+	s.items[id-1].Done = done
+	item := s.items[id-1]
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, item)
 }
 
 // validDueDate reports whether due is a YYYY-MM-DD string naming a real calendar date.

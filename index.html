@@ -11,6 +11,9 @@
     #due { flex: 0 0 auto; }
     label { align-self: center; white-space: nowrap; }
     button { padding: .7rem 1rem; }
+    li label { white-space: normal; }
+    li input { flex: none; padding: 0; }
+    li.done { opacity: .5; }
     #error { color: #b42318; min-height: 1.5em; }
     li { padding: .5rem 0; border-bottom: 1px solid #eee; }
   </style>
@@ -35,9 +38,29 @@
       emptyMessage.hidden = items.length !== 0;
       for (const item of items) {
         const row = document.createElement('li');
-        row.textContent = item.due ? `${item.title} · 마감 ${item.due}` : item.title;
+        if (item.done) row.classList.add('done');
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = item.done === true;
+        checkbox.setAttribute('aria-label', '완료');
+        checkbox.addEventListener('change', () => setDone(item.id, checkbox.checked));
+        label.append(checkbox, ' ', item.due ? `${item.title} · 마감 ${item.due}` : item.title);
+        row.append(label);
         list.append(row);
       }
+    }
+    async function setDone(id, done) {
+      error.textContent = '';
+      const response = await fetch(`/api/todos/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        error.textContent = data.error;
+      }
+      await refresh();
     }
     async function refresh() {
       const response = await fetch('/api/todos');

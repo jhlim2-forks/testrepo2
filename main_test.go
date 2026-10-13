@@ -279,3 +279,149 @@ func TestCreateRejectsInvalidDue(t *testing.T) {
 		t.Fatalf("list changed: %s", got.Body)
 	}
 }
+
+func requestPath(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// REQ-12: 할 일마다 완료 표시를 하거나 풀 수 있고, 새 할 일은 완료하지 않은 상태로 시작한다.
+func TestToggleDone(t *testing.T) {
+	h := (&todoStore{}).handler()
+	if w := request(t, h, http.MethodPost, `{"title":"회의 자료 준비","done":true}`); w.Code != http.StatusCreated || strings.TrimSpace(w.Body.String()) != `{"id":1,"title":"회의 자료 준비"}` {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	request(t, h, http.MethodPost, `{"title":"메일 답장","due":"2026-10-20"}`)
+	if got := strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String()); got != `{"todos":[{"id":1,"title":"회의 자료 준비"},{"id":2,"title":"메일 답장","due":"2026-10-20"}]}` {
+		t.Fatalf("new todos must not be done: %s", got)
+	}
+	for i := 0; i < 2; i++ {
+		w := requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+		if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":1,"title":"회의 자료 준비","done":true}` {
+			t.Fatalf("mark done #%d: %d %s", i+1, w.Code, w.Body)
+		}
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `{"id":1,"title":"회의 자료 준비","done":true}`) {
+		t.Fatalf("list must keep done: %s", got)
+	}
+	w := requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":false}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":1,"title":"회의 자료 준비"}` {
+		t.Fatalf("unmark: %d %s", w.Code, w.Body)
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); strings.Contains(got, `"done"`) {
+		t.Fatalf("list must not contain done: %s", got)
+	}
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true,"title":"바꾼 제목","due":"2027-01-01"}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":2,"title":"메일 답장","due":"2026-10-20","done":true}` {
+		t.Fatalf("title and due must not change: %d %s", w.Code, w.Body)
+	}
+}
+
+// REQ-13: 목록 조회는 완료하지 않은 할 일을 먼저, 완료한 할 일을 뒤에 두고 각 묶음 안은 추가한 순서를 따른다.
+func TestListPutsDoneTodosLast(t *testing.T) {
+	h := (&todoStore{}).handler()
+	for _, title := range []string{"가", "나", "다"} {
+		request(t, h, http.MethodPost, `{"title":"`+title+`"}`)
+	}
+	list := func() string {
+		return strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String())
+	}
+	if got := list(); got != `{"todos":[{"id":1,"title":"가"},{"id":2,"title":"나"},{"id":3,"title":"다"}]}` {
+		t.Fatalf("no done todos: %s", got)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+	if got := list(); got != `{"todos":[{"id":2,"title":"나"},{"id":3,"title":"다"},{"id":1,"title":"가","done":true}]}` {
+		t.Fatalf("after marking 1: %s", got)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true}`)
+	if got := list(); got != `{"todos":[{"id":3,"title":"다"},{"id":1,"title":"가","done":true},{"id":2,"title":"나","done":true}]}` {
+		t.Fatalf("after marking 2: %s", got)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":false}`)
+	if got := list(); got != `{"todos":[{"id":1,"title":"가"},{"id":3,"title":"다"},{"id":2,"title":"나","done":true}]}` {
+		t.Fatalf("after unmarking 1: %s", got)
+	}
+	html, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"checkbox.type = 'checkbox';",
+		"method: 'PATCH'",
+		"body: JSON.stringify({ done })",
+		"await fetch(`/api/todos/${id}`",
+	} {
+		if !strings.Contains(string(html), fragment) {
+			t.Errorf("home page is missing behavior %q", fragment)
+		}
+	}
+}
+
+// REQ-14: 화면은 완료한 할 일 줄을 done 클래스로 흐리게 보여 주고 숨기지 않으며, 안내 문구는 전체 할 일 수로만 정한다.
+func TestDoneTodosAreDimmedNotHidden(t *testing.T) {
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("home page status: %d", page.Code)
+	}
+	for _, fragment := range []string{
+		`li.done { opacity: .5; }`,
+		`if (item.done) row.classList.add('done');`,
+		`checkbox.checked = item.done === true;`,
+		`'aria-label', '완료'`,
+		`emptyMessage.hidden = items.length !== 0;`,
+	} {
+		if !strings.Contains(page.Body.String(), fragment) {
+			t.Errorf("home page is missing %q", fragment)
+		}
+	}
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+	if got := strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String()); got != `{"todos":[{"id":1,"title":"회의 자료 준비","done":true}]}` {
+		t.Fatalf("done todo must stay in the list: %s", got)
+	}
+}
+
+// REQ-15: 없는 할 일은 404, 잘못된 요청 형식은 400으로 거절하고 완료 여부를 바꾸지 않는다.
+func TestToggleDoneRejectsInvalidRequests(t *testing.T) {
+	h := (&todoStore{}).handler()
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	const notFound = `{"error":"할 일을 찾을 수 없습니다."}`
+	for _, path := range []string{"/api/todos/99", "/api/todos/0", "/api/todos/abc", "/api/todos/-1", "/api/todos/", "/api/todos/1/x"} {
+		w := requestPath(t, h, http.MethodPatch, path, `{"done":true}`)
+		if w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != notFound {
+			t.Fatalf("%s: got %d %s", path, w.Code, w.Body)
+		}
+	}
+	if w := requestPath(t, h, http.MethodPatch, "/api/todos/99", `{"done":`); w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != notFound {
+		t.Fatalf("missing id with bad body: got %d %s", w.Code, w.Body)
+	}
+	for _, done := range []bool{false, true} {
+		if done {
+			requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+		}
+		want := request(t, h, http.MethodGet, "").Body.String()
+		for _, body := range []string{`{"done":`, ``, `{}`, `{"done":null}`, `{"done":"true"}`, `{"done":1}`, `[]`, `{"done":true} {}`} {
+			w := requestPath(t, h, http.MethodPatch, "/api/todos/1", body)
+			if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"요청 형식이 올바르지 않습니다."}` {
+				t.Fatalf("%q: got %d %s", body, w.Code, w.Body)
+			}
+			if got := request(t, h, http.MethodGet, "").Body.String(); got != want {
+				t.Fatalf("%q changed the list: %s, want %s", body, got, want)
+			}
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodDelete, http.MethodPost, http.MethodPut} {
+		w := requestPath(t, h, method, "/api/todos/1", `{"done":false}`)
+		if w.Code != http.StatusMethodNotAllowed || strings.TrimSpace(w.Body.String()) != `{"error":"지원하지 않는 요청 방식입니다."}` {
+			t.Fatalf("%s: got %d %s", method, w.Code, w.Body)
+		}
+	}
+	if w := requestPath(t, h, http.MethodPatch, "/api/todos", `{"done":true}`); w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("PATCH /api/todos: got %d %s", w.Code, w.Body)
+	}
+}
