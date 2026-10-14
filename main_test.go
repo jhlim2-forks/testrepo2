@@ -790,21 +790,21 @@ func TestSearchFiltersOnPageOnly(t *testing.T) {
 	}
 }
 
-// REQ-23: 할 일을 지우면 지우기 전 모습을 돌려주고, 남은 할 일은 그대로 두며, 지운 식별자는 다시 쓰지 않는다.
+// REQ-23: 할 일을 지우면 본문 없이 204를 돌려주고, 남은 할 일은 그대로 두며, 지운 식별자는 다시 쓰지 않는다.
 func TestDeleteTodo(t *testing.T) {
 	h := (&todoStore{}).handler()
 	request(t, h, http.MethodPost, `{"title":"회의 자료 준비","due":"2026-10-20"}`)
 	request(t, h, http.MethodPost, `{"title":"메일 답장"}`)
 	request(t, h, http.MethodPost, `{"title":"보고서 제출"}`)
 	requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true}`)
-	steps := []struct{ id, body, deleted, list string }{
-		{"2", "", `{"id":2,"title":"메일 답장","done":true}`, `{"todos":[{"id":1,"title":"회의 자료 준비","due":"2026-10-20"},{"id":3,"title":"보고서 제출"}]}`},
-		{"1", `{"id":3}`, `{"id":1,"title":"회의 자료 준비","due":"2026-10-20"}`, `{"todos":[{"id":3,"title":"보고서 제출"}]}`},
-		{"3", `{"id":1}`, `{"id":3,"title":"보고서 제출"}`, `{"todos":[]}`},
+	steps := []struct{ id, body, list string }{
+		{"2", "", `{"todos":[{"id":1,"title":"회의 자료 준비","due":"2026-10-20"},{"id":3,"title":"보고서 제출"}]}`},
+		{"1", `{"id":3}`, `{"todos":[{"id":3,"title":"보고서 제출"}]}`},
+		{"3", `{"id":1}`, `{"todos":[]}`},
 	}
 	for _, step := range steps {
 		w := requestPath(t, h, http.MethodDelete, "/api/todos/"+step.id, step.body)
-		if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != step.deleted {
+		if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
 			t.Fatalf("delete %s: %d %s", step.id, w.Code, w.Body)
 		}
 		if got := strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String()); got != step.list {
@@ -856,7 +856,7 @@ func TestDeleteRejectsMissingTodo(t *testing.T) {
 			t.Fatalf("%s changed the list: %s, want %s", path, got, want)
 		}
 	}
-	if w := requestPath(t, h, http.MethodDelete, "/api/todos/1", ""); w.Code != http.StatusOK {
+	if w := requestPath(t, h, http.MethodDelete, "/api/todos/1", ""); w.Code != http.StatusNoContent || w.Body.Len() != 0 {
 		t.Fatalf("first delete: %d %s", w.Code, w.Body)
 	}
 	if w := requestPath(t, h, http.MethodDelete, "/api/todos/1", ""); w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != notFound {
@@ -864,6 +864,25 @@ func TestDeleteRejectsMissingTodo(t *testing.T) {
 	}
 	if w := requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`); w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != notFound {
 		t.Fatalf("patch deleted todo: %d %s", w.Code, w.Body)
+	}
+}
+
+// REQ-23, REQ-24 #95: 할 일 지우기가 성공하면 200과 지운 할 일이 아니라 본문 없는 204를 돌려준다.
+func TestDeleteRespondsNoContentIssue95(t *testing.T) {
+	h := (&todoStore{}).handler()
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비","due":"2026-10-20"}`)
+	request(t, h, http.MethodPost, `{"title":"메일 답장"}`)
+	request(t, h, http.MethodPost, `{"title":"보고서 제출"}`)
+	requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true}`)
+	w := requestPath(t, h, http.MethodDelete, "/api/todos/2", "")
+	if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
+		t.Fatalf("delete: got %d %q, want 204 with an empty body", w.Code, w.Body)
+	}
+	if got := strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String()); got != `{"todos":[{"id":1,"title":"회의 자료 준비","due":"2026-10-20"},{"id":3,"title":"보고서 제출"}]}` {
+		t.Fatalf("list after delete: %s", got)
+	}
+	if w := requestPath(t, h, http.MethodDelete, "/api/todos/2", ""); w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != `{"error":"할 일을 찾을 수 없습니다."}` {
+		t.Fatalf("second delete: %d %s", w.Code, w.Body)
 	}
 }
 

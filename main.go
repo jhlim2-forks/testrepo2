@@ -148,9 +148,7 @@ func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 		// REQ-23, REQ-24: 찾기와 빼기를 한 잠금 안에서 하고, 본문은 읽지 않는다.
 		s.mu.Lock()
 		i := s.index(id)
-		var item Todo
 		if i >= 0 {
-			item = s.items[i]
 			s.items = append(s.items[:i], s.items[i+1:]...)
 		}
 		s.mu.Unlock()
@@ -158,7 +156,7 @@ func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
 			return
 		}
-		writeJSON(w, http.StatusOK, item)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	s.mu.Lock()
