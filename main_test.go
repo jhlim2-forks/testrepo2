@@ -330,7 +330,7 @@ func TestToggleDone(t *testing.T) {
 	if got := request(t, h, http.MethodGet, "").Body.String(); strings.Contains(got, `"done"`) {
 		t.Fatalf("list must not contain done: %s", got)
 	}
-	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true,"title":"바꾼 제목","due":"2027-01-01"}`)
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true,"due":"2027-01-01"}`)
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":2,"title":"메일 답장","due":"2026-10-20","done":true}` {
 		t.Fatalf("title and due must not change: %d %s", w.Code, w.Body)
 	}
@@ -439,5 +439,129 @@ func TestToggleDoneRejectsInvalidRequests(t *testing.T) {
 	}
 	if w := requestPath(t, h, http.MethodPatch, "/api/todos", `{"done":true}`); w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("PATCH /api/todos: got %d %s", w.Code, w.Body)
+	}
+}
+
+// REQ-16: 제목을 고치면 고친 제목을 보관하고, 식별자, 마감일, 완료 여부와 목록 순서는 그대로 둔다.
+func TestEditTitle(t *testing.T) {
+	h := (&todoStore{}).handler()
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비","due":"2026-10-20"}`)
+	request(t, h, http.MethodPost, `{"title":"메일 답장"}`)
+	requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true}`)
+	w := requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"title":"  회의 자료 다시 준비  "}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":1,"title":"회의 자료 다시 준비","due":"2026-10-20"}` {
+		t.Fatalf("edit 1: %d %s", w.Code, w.Body)
+	}
+	list := func() string {
+		return strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String())
+	}
+	if got := list(); got != `{"todos":[{"id":1,"title":"회의 자료 다시 준비","due":"2026-10-20"},{"id":2,"title":"메일 답장","done":true}]}` {
+		t.Fatalf("list after edit 1: %s", got)
+	}
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"title":"메일 다시 답장"}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":2,"title":"메일 다시 답장","done":true}` {
+		t.Fatalf("edit 2 must keep done: %d %s", w.Code, w.Body)
+	}
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"title":"메일 다시 답장"}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":2,"title":"메일 다시 답장","done":true}` {
+		t.Fatalf("same title: %d %s", w.Code, w.Body)
+	}
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":false,"title":"메일 답장"}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":2,"title":"메일 답장"}` {
+		t.Fatalf("done and title together: %d %s", w.Code, w.Body)
+	}
+	w = requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"title":"회의 자료 준비","due":"2027-01-01","id":5}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"id":1,"title":"회의 자료 준비","due":"2026-10-20"}` {
+		t.Fatalf("due and id must not change: %d %s", w.Code, w.Body)
+	}
+	if got := list(); got != `{"todos":[{"id":1,"title":"회의 자료 준비","due":"2026-10-20"},{"id":2,"title":"메일 답장"}]}` {
+		t.Fatalf("final list: %s", got)
+	}
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	for _, fragment := range []string{
+		`editButton.textContent = '수정';`,
+		`saveButton.textContent = '저장';`,
+		`cancelButton.textContent = '취소';`,
+		`body: JSON.stringify({ title })`,
+		`titleText.textContent = item.title;`,
+		`event.key === 'Enter'`,
+		`event.key === 'Escape'`,
+	} {
+		if !strings.Contains(page.Body.String(), fragment) {
+			t.Errorf("home page is missing %q", fragment)
+		}
+	}
+}
+
+// REQ-17: 고칠 제목에는 추가와 같은 제목 규칙과 오류 문장을 적용하고, 거절하면 제목과 완료 여부를 그대로 둔다.
+func TestEditTitleUsesCreateTitleRules(t *testing.T) {
+	h := (&todoStore{}).handler()
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	const unchanged = `{"todos":[{"id":1,"title":"회의 자료 준비"}]}`
+	cases := []struct{ body, want string }{
+		{`{"title":""}`, `{"error":"제목을 입력해 주세요."}`},
+		{`{"title":"   "}`, `{"error":"제목을 입력해 주세요."}`},
+		{`{"title":" \t\n "}`, `{"error":"제목을 입력해 주세요."}`},
+		{`{"title":"` + strings.Repeat("가", 201) + `"}`, `{"error":"제목은 200자까지 입력할 수 있습니다."}`},
+		{`{"title":"` + strings.Repeat("e\u0301", 101) + `"}`, `{"error":"제목은 200자까지 입력할 수 있습니다."}`},
+		{`{"done":true,"title":""}`, `{"error":"제목을 입력해 주세요."}`},
+	}
+	for _, c := range cases {
+		w := requestPath(t, h, http.MethodPatch, "/api/todos/1", c.body)
+		if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != c.want {
+			t.Fatalf("%.40s: got %d %s", c.body, w.Code, w.Body)
+		}
+		if got := strings.TrimSpace(request(t, h, http.MethodGet, "").Body.String()); got != unchanged {
+			t.Fatalf("%.40s changed the list: %s", c.body, got)
+		}
+		// 추가할 때도 같은 문장으로 거절한다.
+		if w := request(t, h, http.MethodPost, c.body); strings.TrimSpace(w.Body.String()) != c.want {
+			t.Fatalf("%.40s: create and edit disagree: %s", c.body, w.Body)
+		}
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"title":"` + strings.Repeat("가", 200) + `"}`, strings.Repeat("가", 200)},
+		{`{"title":" ` + strings.Repeat("나", 200) + ` "}`, strings.Repeat("나", 200)},
+		{`{"title":"` + strings.Repeat("e\u0301", 100) + `"}`, strings.Repeat("e\u0301", 100)},
+	} {
+		w := requestPath(t, h, http.MethodPatch, "/api/todos/1", c.body)
+		var got Todo
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != http.StatusOK || got.Title != c.want || len([]rune(got.Title)) != 200 {
+			t.Fatalf("%.40s: got %d %q", c.body, w.Code, got.Title)
+		}
+	}
+}
+
+// REQ-18: 없는 할 일은 404, 잘못된 형식은 400으로 거절하고 제목과 완료 여부를 바꾸지 않는다.
+func TestEditTitleRejectsInvalidRequests(t *testing.T) {
+	h := (&todoStore{}).handler()
+	request(t, h, http.MethodPost, `{"title":"회의 자료 준비"}`)
+	const notFound = `{"error":"할 일을 찾을 수 없습니다."}`
+	for _, path := range []string{"/api/todos/99", "/api/todos/0", "/api/todos/abc"} {
+		for _, body := range []string{`{"title":"새 제목"}`, `{"title":""}`} {
+			w := requestPath(t, h, http.MethodPatch, path, body)
+			if w.Code != http.StatusNotFound || strings.TrimSpace(w.Body.String()) != notFound {
+				t.Fatalf("%s %s: got %d %s", path, body, w.Code, w.Body)
+			}
+		}
+	}
+	for _, done := range []bool{false, true} {
+		if done {
+			requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+		}
+		want := request(t, h, http.MethodGet, "").Body.String()
+		for _, body := range []string{`{"title":null}`, `{"title":123}`, `{"done":true,"title":123}`, `{"done":"true","title":"새 제목"}`, `{"done":1,"title":""}`, `{"done":false,"title":null}`} {
+			w := requestPath(t, h, http.MethodPatch, "/api/todos/1", body)
+			if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"요청 형식이 올바르지 않습니다."}` {
+				t.Fatalf("%s: got %d %s", body, w.Code, w.Body)
+			}
+			if got := request(t, h, http.MethodGet, "").Body.String(); got != want {
+				t.Fatalf("%s changed the list: %s, want %s", body, got, want)
+			}
+		}
 	}
 }
