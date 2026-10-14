@@ -441,3 +441,84 @@ func TestToggleDoneRejectsInvalidRequests(t *testing.T) {
 		t.Fatalf("PATCH /api/todos: got %d %s", w.Code, w.Body)
 	}
 }
+
+// REQ-19: 화면은 목록 영역 바로 위에 완료하지 않은 할 일 개수를 보여 주고, 할 일이 없으면 숨기며, API 응답 형식은 바꾸지 않는다.
+func TestRemainingCountIsShownAboveList(t *testing.T) {
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("home page status: %d", page.Code)
+	}
+	source := page.Body.String()
+	countAt := strings.Index(source, `<p id="remaining-count" hidden></p>`)
+	listAt := strings.Index(source, `<ul id="todos">`)
+	if countAt < 0 || listAt < 0 || countAt > listAt {
+		t.Fatalf("remaining count must be placed before the list: count=%d list=%d", countAt, listAt)
+	}
+	if formEnd := strings.Index(source, `</form>`); formEnd < 0 || formEnd > countAt {
+		t.Fatalf("remaining count must be placed after the add form")
+	}
+	for _, fragment := range []string{
+		"remainingCount.textContent = `남은 할 일 ${items.filter(item => item.done !== true).length}개`;",
+		`remainingCount.hidden = items.length === 0;`,
+		`emptyMessage.hidden = items.length !== 0;`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("home page is missing behavior %q", fragment)
+		}
+	}
+
+	empty := request(t, h, http.MethodGet, "")
+	if empty.Code != http.StatusOK || strings.TrimSpace(empty.Body.String()) != `{"todos":[]}` || strings.Contains(empty.Body.String(), "남은 할 일") {
+		t.Fatalf("empty list response must not contain the remaining count: %d %s", empty.Code, empty.Body)
+	}
+
+	// The page counts todos whose done is not true from this list response.
+	for _, title := range []string{"가", "나", "다"} {
+		if w := request(t, h, http.MethodPost, `{"title":"`+title+`"}`); w.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", title, w.Code, w.Body)
+		}
+	}
+	remaining := func() int {
+		t.Helper()
+		var got struct {
+			Todos []Todo `json:"todos"`
+		}
+		w := request(t, h, http.MethodGet, "")
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(w.Body.String(), "남은 할 일") {
+			t.Fatalf("list response must not contain the remaining count: %s", w.Body)
+		}
+		n := 0
+		for _, todo := range got.Todos {
+			if !todo.Done {
+				n++
+			}
+		}
+		return n
+	}
+	if n := remaining(); n != 3 {
+		t.Fatalf("remaining after three creates: %d", n)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+	if n := remaining(); n != 2 {
+		t.Fatalf("remaining after marking one done: %d", n)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":false}`)
+	if n := remaining(); n != 3 {
+		t.Fatalf("remaining after unmarking: %d", n)
+	}
+	request(t, h, http.MethodPost, `{"title":"  "}`)
+	if n := remaining(); n != 3 {
+		t.Fatalf("remaining after rejected create: %d", n)
+	}
+	for _, id := range []string{"1", "2", "3"} {
+		requestPath(t, h, http.MethodPatch, "/api/todos/"+id, `{"done":true}`)
+	}
+	if n := remaining(); n != 0 {
+		t.Fatalf("remaining after completing all: %d", n)
+	}
+}
