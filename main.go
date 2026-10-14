@@ -23,6 +23,18 @@ type Todo struct {
 type todoStore struct {
 	mu    sync.Mutex
 	items []Todo
+	// lastID is the last identifier handed out. It never goes down, so a deleted todo's identifier is not reused.
+	lastID int
+}
+
+// index returns the position of the todo with the given identifier in s.items, or -1. The caller holds s.mu.
+func (s *todoStore) index(id int) int {
+	for i, item := range s.items {
+		if item.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func (s *todoStore) handler() http.Handler {
@@ -113,21 +125,44 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	item := Todo{ID: len(s.items) + 1, Title: title, Due: due}
+	s.lastID++
+	item := Todo{ID: s.lastID, Title: title, Due: due}
 	s.items = append(s.items, item)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, item)
 }
 
-// todo handles PATCH /api/todos/{id}, which marks a todo as done or not done and edits its title.
+// todo handles PATCH /api/todos/{id}, which marks a todo as done or not done and edits its title,
+// and DELETE /api/todos/{id}, which deletes a todo.
 func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPatch {
+	if r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 		respondError(w, http.StatusMethodNotAllowed, "지원하지 않는 요청 방식입니다.")
 		return
 	}
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/todos/"))
+	if err != nil || id < 1 {
+		respondError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
+		return
+	}
+	if r.Method == http.MethodDelete {
+		// REQ-23, REQ-24: 찾기와 빼기를 한 잠금 안에서 하고, 본문은 읽지 않는다.
+		s.mu.Lock()
+		i := s.index(id)
+		var item Todo
+		if i >= 0 {
+			item = s.items[i]
+			s.items = append(s.items[:i], s.items[i+1:]...)
+		}
+		s.mu.Unlock()
+		if i < 0 {
+			respondError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
 	s.mu.Lock()
-	found := err == nil && id >= 1 && id <= len(s.items)
+	found := s.index(id) >= 0
 	s.mu.Unlock()
 	if !found {
 		respondError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
@@ -182,13 +217,20 @@ func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Lock()
+	i := s.index(id)
+	if i < 0 {
+		// The todo was deleted while the body was being checked.
+		s.mu.Unlock()
+		respondError(w, http.StatusNotFound, "할 일을 찾을 수 없습니다.")
+		return
+	}
 	if hasDone {
-		s.items[id-1].Done = done
+		s.items[i].Done = done
 	}
 	if hasTitle {
-		s.items[id-1].Title = title
+		s.items[i].Title = title
 	}
-	item := s.items[id-1]
+	item := s.items[i]
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, item)
 }
