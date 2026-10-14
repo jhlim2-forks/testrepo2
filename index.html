@@ -62,8 +62,13 @@
         editButton.type = 'button';
         editButton.textContent = '수정';
         editButton.addEventListener('click', () => startEdit(titleText, editButton, item));
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.textContent = '삭제';
+        deleteButton.addEventListener('click', () => deleteTodo(item.id));
         row.append(label);
         row.append(' ', editButton);
+        row.append(' ', deleteButton);
         list.append(row);
       }
     }
@@ -115,6 +120,16 @@
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ done })
       });
+      if (!response.ok) {
+        const data = await response.json();
+        error.textContent = data.error;
+      }
+      await refresh();
+    }
+    async function deleteTodo(id) {
+      if (closeEdit) closeEdit();
+      error.textContent = '';
+      const response = await fetch(`/api/todos/${id}`, { method: 'DELETE' });
       if (!response.ok) {
         const data = await response.json();
         error.textContent = data.error;
