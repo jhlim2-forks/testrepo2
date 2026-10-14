@@ -16,6 +16,7 @@
     li input:not([type]) { padding: .2rem; }
     li button { padding: .2rem .6rem; }
     li.done { opacity: .5; }
+    .search { display: flex; gap: .5rem; }
     #error { color: #b42318; min-height: 1.5em; }
     li { padding: .5rem 0; border-bottom: 1px solid #eee; }
   </style>
@@ -29,8 +30,13 @@
     <button type="submit">추가</button>
   </form>
   <p id="error" role="alert"></p>
+  <p class="search">
+    <label for="search">제목으로 찾기</label>
+    <input type="search" id="search" placeholder="제목으로 찾기">
+  </p>
   <p id="remaining-count" hidden></p>
   <ul id="todos"></ul>
+  <p id="no-results" hidden>찾는 할 일이 없습니다.</p>
   <p id="empty-message" hidden>아직 할 일이 없으니 위 입력 칸에서 첫 할 일을 추가해 보세요.</p>
   <script>
     const list = document.getElementById('todos');
@@ -38,14 +44,24 @@
     const emptyMessage = document.getElementById('empty-message');
     let closeEdit = null;
     const remainingCount = document.getElementById('remaining-count');
+    const search = document.getElementById('search');
+    const noResults = document.getElementById('no-results');
+    let lastItems = [];
+    function matches(item, query) {
+      return query === '' || item.title.toLowerCase().includes(query.toLowerCase());
+    }
     function render(items) {
+      lastItems = items;
       list.replaceChildren();
       closeEdit = null;
       emptyMessage.hidden = items.length !== 0;
       remainingCount.textContent = `남은 할 일 ${items.filter(item => item.done !== true).length}개`;
       remainingCount.textContent += ` · 완료 ${items.filter(item => item.done === true).length}개`;
       remainingCount.hidden = items.length === 0;
-      for (const item of items) {
+      const query = search.value.trim();
+      const shown = items.filter(item => matches(item, query));
+      noResults.hidden = !(items.length !== 0 && shown.length === 0);
+      for (const item of shown) {
         const row = document.createElement('li');
         if (item.done) row.classList.add('done');
         const label = document.createElement('label');
@@ -156,6 +172,7 @@
       dueInput.value = '';
       await refresh();
     });
+    search.addEventListener('input', () => render(lastItems));
     refresh();
   </script>
 </body>

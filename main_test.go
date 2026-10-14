@@ -729,6 +729,67 @@ func TestCompletedCountIsShownWithRemainingCount(t *testing.T) {
 	}
 }
 
+// REQ-22: 화면은 목록 위의 검색 칸으로 받아 온 목록을 제목으로 거르고, 결과가 없으면 따로 알리며, 서버는 검색어를 받지 않는다.
+func TestSearchFiltersOnPageOnly(t *testing.T) {
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("home page status: %d", page.Code)
+	}
+	source := page.Body.String()
+	searchAt := strings.Index(source, `<input type="search" id="search" placeholder="제목으로 찾기">`)
+	labelAt := strings.Index(source, `<label for="search">제목으로 찾기</label>`)
+	countAt := strings.Index(source, `<p id="remaining-count" hidden></p>`)
+	listAt := strings.Index(source, `<ul id="todos">`)
+	formEnd := strings.Index(source, `</form>`)
+	if searchAt < 0 || labelAt < 0 || countAt < 0 || listAt < 0 || formEnd < 0 {
+		t.Fatalf("home page is missing the search box, its label, the count line or the list")
+	}
+	if !(formEnd < labelAt && labelAt < searchAt && searchAt < countAt && countAt < listAt) {
+		t.Fatalf("search box must be between the add form and the count line: form=%d label=%d search=%d count=%d list=%d", formEnd, labelAt, searchAt, countAt, listAt)
+	}
+	noResultsAt := strings.Index(source, `<p id="no-results" hidden>찾는 할 일이 없습니다.</p>`)
+	if noResultsAt < listAt {
+		t.Fatalf("no-results message must be a hidden element after the list: %d", noResultsAt)
+	}
+	for _, fragment := range []string{
+		`return query === '' || item.title.toLowerCase().includes(query.toLowerCase());`,
+		`const query = search.value.trim();`,
+		`const shown = items.filter(item => matches(item, query));`,
+		`noResults.hidden = !(items.length !== 0 && shown.length === 0);`,
+		`for (const item of shown) {`,
+		`emptyMessage.hidden = items.length !== 0;`,
+		`remainingCount.hidden = items.length === 0;`,
+		`search.addEventListener('input', () => render(lastItems));`,
+		`const response = await fetch('/api/todos');`,
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("home page is missing behavior %q", fragment)
+		}
+	}
+
+	// The server ignores any search query and always returns the full list.
+	for _, title := range []string{"회의 자료 준비", "메일 답장", "Weekly Report"} {
+		if w := request(t, h, http.MethodPost, `{"title":"`+title+`"}`); w.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", title, w.Code, w.Body)
+		}
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/2", `{"done":true}`)
+	full := request(t, h, http.MethodGet, "")
+	queried := requestPath(t, h, http.MethodGet, "/api/todos?q=회의", "")
+	if queried.Code != http.StatusOK || queried.Body.String() != full.Body.String() {
+		t.Fatalf("query must not change the list response: %d %s, want %s", queried.Code, queried.Body, full.Body)
+	}
+	if strings.Contains(queried.Body.String(), "찾는 할 일이 없습니다.") {
+		t.Fatalf("list response must not contain the no-results message: %s", queried.Body)
+	}
+	want := `{"todos":[{"id":1,"title":"회의 자료 준비"},{"id":3,"title":"Weekly Report"},{"id":2,"title":"메일 답장","done":true}]}`
+	if got := strings.TrimSpace(queried.Body.String()); got != want {
+		t.Fatalf("list order: %s", got)
+	}
+}
+
 // REQ-23: 할 일을 지우면 지우기 전 모습을 돌려주고, 남은 할 일은 그대로 두며, 지운 식별자는 다시 쓰지 않는다.
 func TestDeleteTodo(t *testing.T) {
 	h := (&todoStore{}).handler()
