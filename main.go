@@ -103,14 +103,9 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 			due = value
 		}
 	}
-	title = strings.TrimSpace(title)
-	if title == "" {
-		respondError(w, http.StatusBadRequest, "제목을 입력해 주세요.")
-		return
-	}
-	if len([]rune(title)) > 200 {
-		// REQ-04: 글자 수는 앞뒤 공백을 제거한 제목의 유니코드 코드 포인트 수다.
-		respondError(w, http.StatusBadRequest, "제목은 200자까지 입력할 수 있습니다.")
+	title, message := cleanTitle(title)
+	if message != "" {
+		respondError(w, http.StatusBadRequest, message)
 		return
 	}
 	if due != "" && !validDueDate(due) {
@@ -124,7 +119,7 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
-// todo handles PATCH /api/todos/{id}, which marks a todo as done or not done.
+// todo handles PATCH /api/todos/{id}, which marks a todo as done or not done and edits its title.
 func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPatch {
 		respondError(w, http.StatusMethodNotAllowed, "지원하지 않는 요청 방식입니다.")
@@ -149,21 +144,67 @@ func (s *todoStore) todo(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
-	var decodedDone any
-	if raw, exists := input["done"]; !exists || json.Unmarshal(raw, &decodedDone) != nil {
+	rawDone, hasDone := input["done"]
+	rawTitle, hasTitle := input["title"]
+	if !hasDone && !hasTitle {
 		respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
 		return
 	}
-	done, ok := decodedDone.(bool)
-	if !ok {
-		respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
-		return
+	var done bool
+	if hasDone {
+		var decodedDone any
+		var ok bool
+		if json.Unmarshal(rawDone, &decodedDone) != nil {
+			respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
+			return
+		}
+		if done, ok = decodedDone.(bool); !ok {
+			respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
+			return
+		}
+	}
+	var title string
+	if hasTitle {
+		var decodedTitle any
+		var ok bool
+		if json.Unmarshal(rawTitle, &decodedTitle) != nil {
+			respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
+			return
+		}
+		if title, ok = decodedTitle.(string); !ok {
+			respondError(w, http.StatusBadRequest, "요청 형식이 올바르지 않습니다.")
+			return
+		}
+		var message string
+		if title, message = cleanTitle(title); message != "" {
+			respondError(w, http.StatusBadRequest, message)
+			return
+		}
 	}
 	s.mu.Lock()
-	s.items[id-1].Done = done
+	if hasDone {
+		s.items[id-1].Done = done
+	}
+	if hasTitle {
+		s.items[id-1].Title = title
+	}
 	item := s.items[id-1]
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, item)
+}
+
+// cleanTitle trims a title and checks the rules shared by adding and editing a todo.
+// It returns the trimmed title, or the Korean error message when the title is rejected.
+func cleanTitle(title string) (string, string) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", "제목을 입력해 주세요."
+	}
+	if len([]rune(title)) > 200 {
+		// REQ-04, REQ-17: 글자 수는 앞뒤 공백을 제거한 제목의 유니코드 코드 포인트 수다.
+		return "", "제목은 200자까지 입력할 수 있습니다."
+	}
+	return title, ""
 }
 
 // validDueDate reports whether due is a YYYY-MM-DD string naming a real calendar date.

@@ -13,6 +13,8 @@
     button { padding: .7rem 1rem; }
     li label { white-space: normal; }
     li input { flex: none; padding: 0; }
+    li input:not([type]) { padding: .2rem; }
+    li button { padding: .2rem .6rem; }
     li.done { opacity: .5; }
     #error { color: #b42318; min-height: 1.5em; }
     li { padding: .5rem 0; border-bottom: 1px solid #eee; }
@@ -34,9 +36,11 @@
     const list = document.getElementById('todos');
     const error = document.getElementById('error');
     const emptyMessage = document.getElementById('empty-message');
+    let closeEdit = null;
     const remainingCount = document.getElementById('remaining-count');
     function render(items) {
       list.replaceChildren();
+      closeEdit = null;
       emptyMessage.hidden = items.length !== 0;
       remainingCount.textContent = `남은 할 일 ${items.filter(item => item.done !== true).length}개`;
       remainingCount.hidden = items.length === 0;
@@ -49,10 +53,60 @@
         checkbox.checked = item.done === true;
         checkbox.setAttribute('aria-label', '완료');
         checkbox.addEventListener('change', () => setDone(item.id, checkbox.checked));
-        label.append(checkbox, ' ', item.due ? `${item.title} · 마감 ${item.due}` : item.title);
+        const titleText = document.createElement('span');
+        titleText.textContent = item.title;
+        label.append(checkbox, ' ', titleText);
+        if (item.due) label.append(` · 마감 ${item.due}`);
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.textContent = '수정';
+        editButton.addEventListener('click', () => startEdit(titleText, editButton, item));
         row.append(label);
+        row.append(' ', editButton);
         list.append(row);
       }
+    }
+    function startEdit(titleText, editButton, item) {
+      if (closeEdit) closeEdit();
+      const editor = document.createElement('span');
+      const titleInput = document.createElement('input');
+      titleInput.value = item.title;
+      titleInput.setAttribute('aria-label', '고칠 제목');
+      titleInput.maxLength = 200;
+      const saveButton = document.createElement('button');
+      saveButton.type = 'button';
+      saveButton.textContent = '저장';
+      const cancelButton = document.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.textContent = '취소';
+      editor.append(titleInput, ' ', saveButton, ' ', cancelButton);
+      titleText.replaceWith(editor);
+      editButton.hidden = true;
+      closeEdit = () => {
+        editor.replaceWith(titleText);
+        editButton.hidden = false;
+        closeEdit = null;
+      };
+      saveButton.addEventListener('click', () => saveTitle(item.id, titleInput.value));
+      cancelButton.addEventListener('click', () => closeEdit());
+      titleInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); saveTitle(item.id, titleInput.value); }
+        if (event.key === 'Escape') { event.preventDefault(); closeEdit(); }
+      });
+      titleInput.focus();
+    }
+    async function saveTitle(id, title) {
+      error.textContent = '';
+      const response = await fetch(`/api/todos/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        error.textContent = data.error;
+        return;
+      }
+      await refresh();
     }
     async function setDone(id, done) {
       error.textContent = '';
