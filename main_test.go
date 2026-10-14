@@ -646,3 +646,82 @@ func TestRemainingCountIsShownAboveList(t *testing.T) {
 		t.Fatalf("remaining after completing all: %d", n)
 	}
 }
+
+// REQ-20: 화면은 남은 할 일 개수 뒤에 같은 요소로 완료한 할 일 개수를 이어 보여 주고, API 응답에는 개수를 담지 않는다.
+func TestCompletedCountIsShownWithRemainingCount(t *testing.T) {
+	h := (&todoStore{}).handler()
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("home page status: %d", page.Code)
+	}
+	source := page.Body.String()
+	if n := strings.Count(source, `id="remaining-count"`); n != 1 {
+		t.Fatalf("counts must share one remaining-count element: %d", n)
+	}
+	if strings.Contains(source, `id="completed-count"`) {
+		t.Fatalf("completed count must not have its own element")
+	}
+	remainingLine := "remainingCount.textContent = `남은 할 일 ${items.filter(item => item.done !== true).length}개`;"
+	completedLine := "remainingCount.textContent += ` · 완료 ${items.filter(item => item.done === true).length}개`;"
+	remainingAt := strings.Index(source, remainingLine)
+	completedAt := strings.Index(source, completedLine)
+	if remainingAt < 0 || completedAt < 0 || completedAt < remainingAt {
+		t.Fatalf("home page must append the completed count after the remaining count: remaining=%d completed=%d", remainingAt, completedAt)
+	}
+	if !strings.Contains(source, `remainingCount.hidden = items.length === 0;`) {
+		t.Fatalf("count line must be hidden when there are no todos")
+	}
+
+	// The page counts done and not-done todos from the same list response.
+	counts := func() (remaining, completed int) {
+		t.Helper()
+		var got map[string][]Todo
+		w := request(t, h, http.MethodGet, "")
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got["todos"] == nil {
+			t.Fatalf("list response format must not change: %s", w.Body)
+		}
+		if strings.Contains(w.Body.String(), "완료") || strings.Contains(w.Body.String(), "남은 할 일") {
+			t.Fatalf("list response must not contain counts: %s", w.Body)
+		}
+		for _, todo := range got["todos"] {
+			if todo.Done {
+				completed++
+			} else {
+				remaining++
+			}
+		}
+		if remaining+completed != len(got["todos"]) {
+			t.Fatalf("counts must add up to the number of todos")
+		}
+		return remaining, completed
+	}
+	if r, c := counts(); r != 0 || c != 0 {
+		t.Fatalf("empty list counts: %d %d", r, c)
+	}
+	for _, title := range []string{"가", "나", "다"} {
+		if w := request(t, h, http.MethodPost, `{"title":"`+title+`"}`); w.Code != http.StatusCreated {
+			t.Fatalf("create %s: %d %s", title, w.Code, w.Body)
+		}
+	}
+	if r, c := counts(); r != 3 || c != 0 {
+		t.Fatalf("counts after three creates: %d %d", r, c)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":true}`)
+	if r, c := counts(); r != 2 || c != 1 {
+		t.Fatalf("counts after marking one done: %d %d", r, c)
+	}
+	requestPath(t, h, http.MethodPatch, "/api/todos/1", `{"done":false}`)
+	if r, c := counts(); r != 3 || c != 0 {
+		t.Fatalf("counts after unmarking: %d %d", r, c)
+	}
+	for _, id := range []string{"1", "2", "3"} {
+		requestPath(t, h, http.MethodPatch, "/api/todos/"+id, `{"done":true}`)
+	}
+	if r, c := counts(); r != 0 || c != 3 {
+		t.Fatalf("counts after completing all: %d %d", r, c)
+	}
+}
