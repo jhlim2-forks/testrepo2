@@ -38,3 +38,9 @@ go run . -listen 127.0.0.1:9000
 ```sh
 go test ./...
 ```
+
+특정 테스트만 돌리려면 `-run`에 테스트 이름(정규식)을 줍니다. 예를 들어 다음 명령은 이름에 `TestCreate`가 들어간 테스트만 실행합니다.
+
+```sh
+go test -run TestCreate ./...
+```
